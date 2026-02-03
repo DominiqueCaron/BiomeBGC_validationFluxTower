@@ -47,7 +47,9 @@ defineModule(sim, list(
   inputObjects = bindrows(
     expectsInput(objectName = "studyArea", objectClass = NA, desc = NA, sourceURL = NA),
     expectsInput(objectName = "towerMetaData", objectClass = NA, desc = NA, sourceURL = NA),
-    expectsInput(objectName = "towerFluxData", objectClass = NA, desc = NA, sourceURL = NA),
+    expectsInput(objectName = "towerFluxDaily", objectClass = NA, desc = NA, sourceURL = NA),
+    expectsInput(objectName = "towerFluxMonthly", objectClass = NA, desc = NA, sourceURL = NA),
+    expectsInput(objectName = "towerFluxAnnual", objectClass = NA, desc = NA, sourceURL = NA),
     expectsInput(objectName = "rasterToMatch", objectClass = NA, desc = NA, sourceURL = NA),
     expectsInput(objectName = "dailyOutput", objectClass = NA, desc = NA, sourceURL = NA),
     expectsInput(objectName = "annualSummary", objectClass = NA, desc = NA, sourceURL = NA)
@@ -61,14 +63,9 @@ doEvent.BiomeBGC_validationFluxTower = function(sim, eventTime, eventType) {
   switch(
     eventType,
     init = {
-      ### check for more detailed object dependencies:
-      ### (use `checkObject` or similar)
-      
-      # do stuff for this event
-      sim <- Init(sim)
       
       # schedule future event(s)
-      sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "BiomeBGC_validationFluxTower", "plot")
+      sim <- scheduleEvent(sim, end(sim), "BiomeBGC_validationFluxTower", "compareGPP")
       sim <- scheduleEvent(sim, P(sim)$.saveInitialTime, "BiomeBGC_validationFluxTower", "save")
     },
     plot = {
@@ -97,19 +94,102 @@ doEvent.BiomeBGC_validationFluxTower = function(sim, eventTime, eventType) {
       
       # ! ----- STOP EDITING ----- ! #
     },
-    event1 = {
-      # ! ----- EDIT BELOW ----- ! #
-      # do stuff for this event
+    compareGPP = {
       
-      # e.g., call your custom functions/methods here
-      # you can define your own methods below this `doEvent` function
+      # Evaluate daily predictions
+      # format the flux tower data
+      colToKeep <- c("TIMESTAMP", "GPP_DT_VUT_REF")
+      towerData <- sim$towerFluxDaily[ , colToKeep]
       
-      # schedule future event(s)
+      # switch -9999 to NA
+      towerData[towerData == -9999] <- NA
       
-      # e.g.,
-      # sim <- scheduleEvent(sim, time(sim) + increment, "BiomeBGC_validationFluxTower", "templateEvent")
+      # format dates
+      dates <- as.Date(as.character(towerData[,"TIMESTAMP"]), format = "%Y%m%d")
+      # remove Feb 29th (not in BiomeBGC)
+      feb29 <- format(dates, "%d") == "29" & format(dates, "%m") == "02"
+      towerData <- towerData[!feb29,]
       
-      # ! ----- STOP EDITING ----- ! #
+      years <- format(dates[!feb29], "%Y")
+      nyear <- length(unique(years))
+      towerData <- data.table(
+        year = as.integer(years),
+        day = rep(c(1:365), nyear),
+        totGPPmean = towerData[,"GPP_DT_VUT_REF"]
+      ) |> na.omit()
+      
+      dtOut <- merge(towerData, sim$dailyOutput[,.(year, timestep, day, daily_gpp)])
+      # put in the same units and rename columns
+      dtOut <- dtOut[, .(timestep, year, day, obsGPP = totGPPmean, predGPP = daily_gpp*1000)]
+      
+      # summarize the fit
+      resid <- dtOut$predGPP - dtOut$obsGPP
+      
+      MAE <- mean(abs(resid))
+      RMSE <- sqrt(mean(resid^2))
+      R2 <- cor(dtOut$predGPP, dtOut$obsGPP) ^ 2
+      Bias <- mean(resid)
+      
+      sim$validationSummary <- data.frame(
+        MAE_daily = MAE,
+        RMSE_daily = RMSE,
+        R2_daily = R2,
+        Bias_daily = Bias
+      )
+      
+      # Evaluate monthly-level predictions
+      towerData <- sim$towerFluxMonthly[ , colToKeep]
+      
+      # switch -9999 to NA
+      towerData[towerData == -9999] <- NA
+      
+      # format dates
+      dates <- as.Date(paste0(as.character(towerData[,"TIMESTAMP"]), "01"), format = "%Y%m%d")
+      
+      years <- format(dates, "%Y")
+      nyear <- length(unique(years))
+      towerData <- data.table(
+        year = as.integer(years),
+        month = rep(c(1:12), nyear),
+        totGPPmean = towerData[,"GPP_DT_VUT_REF"]
+      ) |> na.omit()
+      
+      dtOut <- merge(towerData, sim$monthlyAverages[,.(year, month, daily_gpp)])
+      # put in the same units and rename columns
+      dtOut <- dtOut[, .(year, month, obsGPP = totGPPmean, predGPP = daily_gpp*1000)]
+      
+      # summarize the fit
+      resid <- dtOut$predGPP - dtOut$obsGPP
+      
+      sim$validationSummary$MAE_monthly <- mean(abs(resid))
+      sim$validationSummary$RMSE_monthly <- sqrt(mean(resid^2))
+      sim$validationSummary$R2_monthly <- cor(dtOut$predGPP, dtOut$obsGPP) ^ 2
+      sim$validationSummary$Bias_monthly <- mean(resid)
+      
+      # Evaluate year-level predictions
+      towerData <- sim$towerFluxAnnual[ , colToKeep]
+      
+      # switch -9999 to NA
+      towerData[towerData == -9999] <- NA
+      
+      years <- as.numeric(towerData[,"TIMESTAMP"])
+      towerData <- data.table(
+        year = as.integer(years),
+        totGPPmean = towerData[,"GPP_DT_VUT_REF"]
+      ) |> na.omit()
+      
+      dtOut <- merge(towerData, sim$annualAverages[,.(year, daily_gpp)])
+      # put in the same units and rename columns
+      dtOut <- dtOut[, .(year, obsGPP = totGPPmean, predGPP = daily_gpp*1000*365)]
+      
+      # summarize the fit
+      resid <- dtOut$predGPP - dtOut$obsGPP
+      
+      sim$validationSummary$MAE_annual <- mean(abs(resid))
+      sim$validationSummary$RMSE_annual <- sqrt(mean(resid^2))
+      sim$validationSummary$R2_annual <- cor(dtOut$predGPP, dtOut$obsGPP) ^ 2
+      sim$validationSummary$Bias_annual <- mean(resid)
+      
     },
     event2 = {
       # ! ----- EDIT BELOW ----- ! #
@@ -130,14 +210,7 @@ doEvent.BiomeBGC_validationFluxTower = function(sim, eventTime, eventType) {
   return(invisible(sim))
 }
 
-### template initialization
-Init <- function(sim) {
-  # # ! ----- EDIT BELOW ----- ! #
-  
-  # ! ----- STOP EDITING ----- ! #
-  
-  return(invisible(sim))
-}
+
 ### template for save events
 Save <- function(sim) {
   # ! ----- EDIT BELOW ----- ! #
@@ -202,18 +275,17 @@ Event2 <- function(sim) {
     
     lat <- sim$towerMetaData[which(sim$towerMetaData$VARIABLE == "LOCATION_LAT"), "DATAVALUE"] |> as.numeric()
     lon <- sim$towerMetaData[which(sim$towerMetaData$VARIABLE == "LOCATION_LONG"), "DATAVALUE"] |> as.numeric()
-    sim$studyArea <- vect(data.frame(lon = lon, lat = lat), geom=c("lon", "lat"), crs="EPSG:4326", keepgeom=FALSE)
-    sim$studyArea <- project(sim$studyArea, P(sim)$targetCRS)
-    sim$studyArea <- buffer(sim$studyArea, P(sim)$resolution/2)
+    sim$studyArea <- vect(data.frame(lon = lon, lat = lat), geom=c("lon", "lat"), crs="EPSG:4326")
+    sim$studyArea <- postProcessTo(sim$studyArea, projectTo =  P(sim)$targetCRS)
     
   }
   
   if (!suppliedElsewhere('rasterToMatch', sim)) {
     
-    rtm <- terra::rast(sim$studyArea, res = c(250, 250))
+    rtm <- terra::rast(buffer(sim$studyArea, P(sim)$resolution), 
+                       res = c(P(sim)$resolution, P(sim)$resolution))
     terra::crs(rtm) <-  P(sim)$targetCRS
     rtm[] <- 1
-    rtm <- terra::mask(rtm, sim$studyArea)
     
     sim$rastertoMatch <- rtm
   }
