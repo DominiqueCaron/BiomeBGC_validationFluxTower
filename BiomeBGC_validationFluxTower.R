@@ -66,14 +66,50 @@ doEvent.BiomeBGC_validationFluxTower = function(sim, eventTime, eventType) {
       
       # schedule future event(s)
       sim <- scheduleEvent(sim, end(sim), "BiomeBGC_validationFluxTower", "compareGPP")
-      sim <- scheduleEvent(sim, P(sim)$.saveInitialTime, "BiomeBGC_validationFluxTower", "save")
+      # schedule plotting
+      if (anyPlotting(P(sim)$.plots)) sim <- scheduleEvent(sim, end(sim), "BiomeBGC_validationFluxTower", "plot", eventPriority = 12)
     },
     plot = {
-      # ! ----- EDIT BELOW ----- ! #
-      # do stuff for this event
+      figPath <- file.path(outputPath(sim), "BiomeBGC_validationFluxTower")
+      #1.  Plot comparing daily GPP
+      #1.1 prepare the data
+      colToKeep <- c("TIMESTAMP", "GPP_DT_VUT_REF")
+      towerData <- sim$towerDailyFlux[ , colToKeep]
       
-      plotFun(sim) # example of a plotting function
-      # schedule future event(s)
+      # switch -9999 to NA
+      towerData[towerData == -9999] <- NA
+      
+      # format dates
+      dates <- as.Date(as.character(towerData[,"TIMESTAMP"]), format = "%Y%m%d")
+      # remove Feb 29th (not in BiomeBGC)
+      feb29 <- format(dates, "%d") == "29" & format(dates, "%m") == "02"
+      towerData <- towerData[!feb29,]
+      
+      years <- format(dates[!feb29], "%Y")
+      nyear <- length(unique(years))
+      towerData <- data.table(
+        year = as.integer(years),
+        day = rep(c(1:365), nyear),
+        totGPPmean = towerData[,"GPP_DT_VUT_REF"]
+      )
+      
+      dtOut <- merge(towerData, sim$dailyOutput[,.(year, timestep, day, daily_gpp)])
+      Plots(
+        dtOut,
+        fn = dailyGPPplot,
+        filename = "dailyGPP",
+        types = "png",
+        path = figPath,
+        ggsaveArgs = list(width = 7, height = 7, units = "in", dpi = 300)
+      )
+      Plots(
+        dtOut,
+        fn = dailyGPPtimeseries,
+        filename = "dailyGPPtimeseries",
+        types = "png",
+        path = figPath,
+        ggsaveArgs = list(width = 12, height = 7, units = "in", dpi = 300)
+      )
       
       # e.g.,
       #sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "BiomeBGC_validationFluxTower", "plot")
@@ -221,15 +257,29 @@ Save <- function(sim) {
   return(invisible(sim))
 }
 
-### template for plot events
-plotFun <- function(sim) {
-  # ! ----- EDIT BELOW ----- ! #
-  # do stuff for this event
-  sampleData <- data.frame("TheSample" = sample(1:10, replace = TRUE))
-  Plots(sampleData, fn = ggplotFn) # needs ggplot2
-  
-  # ! ----- STOP EDITING ----- ! #
-  return(invisible(sim))
+
+dailyGPPtimeseries <- function(gpp){
+  dt <- copy(gpp)
+  dt[, date := as.Date(paste0(year, day), format = "%Y%j")]
+  ggplot(data = dt) +
+    geom_line(aes(x = date, y = daily_gpp*1000, col = "BiomeBGC")) +
+    geom_line(aes(x = date, y = totGPPmean, col = "EC tower")) +
+    scale_color_manual(name = NULL, values = c("BiomeBGC" = "darkblue", "EC tower" = "red")) +
+    labs(x = "Time", y = "GPP (gC/m^2/yr)") +
+    scale_x_date(date_breaks = "year", date_labels = "%Y") +
+    theme_classic()
+}
+
+dailyGPPplot <- function(gpp){
+  GPPlims <- range(c(gpp$daily_gpp*1000, gpp$totGPPmean), na.rm = T)
+  GPPlims <- c(floor(GPPlims[1]), ceiling(GPPlims[2]))
+  ggplot(data = gpp) +
+    geom_point(aes(x = totGPPmean, y = daily_gpp*1000), alpha = 0.5) +
+    geom_abline(intercept = 0, slope = 1, linetype = "dashed") +
+    scale_x_continuous(expand = c(0, 0), limits = GPPlims) + 
+    scale_y_continuous(expand = c(0, 0), limits = GPPlims)  +
+    labs(x = "EC tower GPP (gC/m^2/yr)", y = "Biome-BGC (gC/m^2/yr)") +
+    theme_classic()
 }
 
 ### template for your event1
