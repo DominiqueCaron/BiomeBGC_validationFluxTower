@@ -46,10 +46,10 @@ defineModule(sim, list(
   ),
   inputObjects = bindrows(
     expectsInput(objectName = "studyArea", objectClass = NA, desc = NA, sourceURL = NA),
-    expectsInput(objectName = "towerMetaData", objectClass = NA, desc = NA, sourceURL = NA),
-    expectsInput(objectName = "towerFluxDaily", objectClass = NA, desc = NA, sourceURL = NA),
-    expectsInput(objectName = "towerFluxMonthly", objectClass = NA, desc = NA, sourceURL = NA),
-    expectsInput(objectName = "towerFluxAnnual", objectClass = NA, desc = NA, sourceURL = NA),
+    expectsInput(objectName = "towerCoordinates", objectClass = NA, desc = NA, sourceURL = NA),
+    expectsInput(objectName = "towerDailyFlux", objectClass = NA, desc = NA, sourceURL = NA),
+    expectsInput(objectName = "towerMonthlyFlux", objectClass = NA, desc = NA, sourceURL = NA),
+    expectsInput(objectName = "towerAnnualFlux", objectClass = NA, desc = NA, sourceURL = NA),
     expectsInput(objectName = "rasterToMatch", objectClass = NA, desc = NA, sourceURL = NA),
     expectsInput(objectName = "dailyOutput", objectClass = NA, desc = NA, sourceURL = NA),
     expectsInput(objectName = "annualSummary", objectClass = NA, desc = NA, sourceURL = NA)
@@ -99,7 +99,7 @@ doEvent.BiomeBGC_validationFluxTower = function(sim, eventTime, eventType) {
       # Evaluate daily predictions
       # format the flux tower data
       colToKeep <- c("TIMESTAMP", "GPP_DT_VUT_REF")
-      towerData <- sim$towerFluxDaily[ , colToKeep]
+      towerData <- sim$towerDailyFlux[ , colToKeep]
       
       # switch -9999 to NA
       towerData[towerData == -9999] <- NA
@@ -138,7 +138,7 @@ doEvent.BiomeBGC_validationFluxTower = function(sim, eventTime, eventType) {
       )
       
       # Evaluate monthly-level predictions
-      towerData <- sim$towerFluxMonthly[ , colToKeep]
+      towerData <- sim$towerMonthlyFlux[ , colToKeep]
       
       # switch -9999 to NA
       towerData[towerData == -9999] <- NA
@@ -167,7 +167,7 @@ doEvent.BiomeBGC_validationFluxTower = function(sim, eventTime, eventType) {
       sim$validationSummary$Bias_monthly <- mean(resid)
       
       # Evaluate year-level predictions
-      towerData <- sim$towerFluxAnnual[ , colToKeep]
+      towerData <- sim$towerAnnualFlux[ , colToKeep]
       
       # switch -9999 to NA
       towerData[towerData == -9999] <- NA
@@ -259,22 +259,22 @@ Event2 <- function(sim) {
   dPath <- asPath(getOption("reproducible.destinationPath", dataPath(sim)), 1)
   message(currentModule(sim), ": using dataPath '", dPath, "'.")
   
-  if (!suppliedElsewhere('towerMetaData', sim)) {
+  if (!suppliedElsewhere('towerCoordinates', sim)) {
     
     stop("User needs to provide the metadata and ancillary data of the EC site.")
     
   }
   
-  if (!suppliedElsewhere('towerMetaData', sim)) {
+  if (any(!suppliedElsewhere(c('towerDailyFlux', 'towerMonthlyFlux', 'towerAnnualFlux'), sim))) {
     
-    stop("User needs to provide the flux data data of the EC site.")
+    stop("User needs to provide the flux data of the EC site.")
     
   }
   
   if (!suppliedElsewhere('studyArea', sim)) {
     
-    lat <- sim$towerMetaData[which(sim$towerMetaData$VARIABLE == "LOCATION_LAT"), "DATAVALUE"] |> as.numeric()
-    lon <- sim$towerMetaData[which(sim$towerMetaData$VARIABLE == "LOCATION_LONG"), "DATAVALUE"] |> as.numeric()
+    lat <- sim$towerCoordinates["lat"] |> as.numeric()
+    lon <- sim$towerCoordinates["lon"] |> as.numeric()
     sim$studyArea <- vect(data.frame(lon = lon, lat = lat), geom=c("lon", "lat"), crs="EPSG:4326")
     sim$studyArea <- postProcessTo(sim$studyArea, projectTo =  P(sim)$targetCRS)
     
