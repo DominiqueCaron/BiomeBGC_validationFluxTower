@@ -6,7 +6,7 @@
 ## If exact location is required, functions will be: `sim$.mods$<moduleName>$FunctionName`.
 defineModule(sim, list(
   name = "BiomeBGC_validationFluxTower",
-  description = "",
+  description = "Compares Biome-BGC gross primary productivity predictions to Eddy covariance flux tower estimates.",
   keywords = "",
   authors = c(
     person("Dominique", "Caron", email = "dominique.caron@nrcan-rncan.gc.ca", role = c("aut", "cre")),
@@ -18,13 +18,13 @@ defineModule(sim, list(
   timeunit = "year",
   citation = list("citation.bib"),
   documentation = list("NEWS.md", "README.md", "BiomeBGC_validationFluxTower.Rmd"),
-  reqdPkgs = list("SpaDES.core (>= 3.0.4)", "ggplot2"),
+  reqdPkgs = list("SpaDES.core (>= 3.0.4)", "ggplot2", "terra", "data.table", "reproducible"),
   parameters = bindrows(
     #defineParameter("paramName", "paramClass", value, min, max, "parameter description"),
     defineParameter("resolution", "numeric", 250, NA, NA,
-                    ""),
+                    "Defines the resolution for the raster created for the study site."),
     defineParameter("targetCRS", "character", "+proj=lcc +lat_0=0 +lon_0=-95 +lat_1=49 +lat_2=77 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs", NA, NA,
-                    ""),
+                    "Defines the resolution for the raster created for the study site."),
     defineParameter(".plots", "character", "screen", NA, NA,
                     "Used by Plots function, which can be optionally used here"),
     defineParameter(".plotInitialTime", "numeric", start(sim), NA, NA,
@@ -45,17 +45,49 @@ defineModule(sim, list(
                     "Should caching of events or module be used?")
   ),
   inputObjects = bindrows(
-    expectsInput(objectName = "studyArea", objectClass = NA, desc = NA, sourceURL = NA),
-    expectsInput(objectName = "towerCoordinates", objectClass = NA, desc = NA, sourceURL = NA),
-    expectsInput(objectName = "towerDailyFlux", objectClass = NA, desc = NA, sourceURL = NA),
-    expectsInput(objectName = "towerMonthlyFlux", objectClass = NA, desc = NA, sourceURL = NA),
-    expectsInput(objectName = "towerAnnualFlux", objectClass = NA, desc = NA, sourceURL = NA),
-    expectsInput(objectName = "rasterToMatch", objectClass = NA, desc = NA, sourceURL = NA),
-    expectsInput(objectName = "dailyOutput", objectClass = NA, desc = NA, sourceURL = NA),
-    expectsInput(objectName = "annualSummary", objectClass = NA, desc = NA, sourceURL = NA)
+    expectsInput("towerCoordinates", "vector",
+                 desc = paste("Must be provided by the user.",
+                              "A named vector with the longitude and latitude of the EC tower.", 
+                              "The names of the variables must be 'lon' and 'lat'.")
+    ), 
+    expectsInput("towerDailyFlux", "data.frame", 
+                 desc = paste("Must be provided by the user.",
+                              "The daily data from the Eddy covariance flux tower.",
+                              "A csv named 'XXX_XX-XXX_FLUXNET_FLUXMET_DD_XXXX-XXXX_XXX.csv'",
+                              "is usually available when downloading flux tower data.")
+    ),
+    expectsInput("towerMonthlyFlux", "data.frame", 
+                 desc = paste("Must be provided by the user.",
+                              "The monthly data from the Eddy covariance flux tower.",
+                              "A csv named 'XXX_XX-XXX_FLUXNET_FLUXMET_MM_XXXX-XXXX_XXX.csv'",
+                              "is usually available when downloading flux tower data.")
+    ),
+    expectsInput("towerAnnualFlux", "data.frame", 
+                 desc =paste("Must be provided by the user.",
+                             "The annual data from the Eddy covariance flux tower.",
+                             "A csv named 'XXX_XX-XXX_FLUXNET_FLUXMET_YY_XXXX-XXXX_XXX.csv'",
+                             "is usually available when downloading flux tower data.")
+    ),
+    expectsInput("dailyOutput", "data.frame", 
+                 desc = paste("The daily GPP predicted by Biome-BGC.",
+                              "This is an output of the module BiomeBGC_core.")
+    ),
+    expectsInput("monthlyAverages", "data.frame", 
+                 desc = paste("The GPP predicted by Biome-BGC averaged at the monthly resolution.",
+                              "This is an output of the module BiomeBGC_core.")
+    ),
+    expectsInput("annualAverages", "data.frame", 
+                 desc = paste("The GPP predicted by Biome-BGC averaged at the monthly resolution.",
+                              "This is an output of the module BiomeBGC_core.")
+    )
   ),
   outputObjects = bindrows(
-    createsOutput(objectName = "validationSummary", objectClass = NA, desc = NA)
+    createsOutput("studyArea", "SpatVector", 
+                  desc = "A point vector locating the Eddy covariance flux tower."),
+    createsOutput("rasterToMatch", "SpatVector", 
+                  desc = "A 1 pixel raster."),
+    createsOutput("validationSummary", "data.frame", 
+                  desc = "A data frame with validation metrics.")
   )
 ))
 
